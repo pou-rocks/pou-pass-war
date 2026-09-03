@@ -80,11 +80,29 @@
   .merc input{flex:1 1 120px; min-width:0; height:38px; padding:0 11px; font:14px system-ui;
               border:1px solid var(--line); border-radius:9px; background:#fff}
   .merc input.cp{flex:0 0 96px}
+  .merc{border-bottom:0}
+  .bulkrow{padding:0 16px 10px; margin-top:-6px}
+  .bulkbox{padding-top:2px}
+  .bulkbox textarea{flex:1 1 100%; min-width:0; padding:9px 11px; font:14px system-ui; resize:vertical;
+                    border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink)}
+  .bulkbox .btn{width:100%}
+  .panel .merc:last-of-type{border-bottom:1px solid var(--line)}
   .mercerr{padding:8px 16px 0; font-size:12px; color:var(--accent)}
-  ul.lineup{list-style:none; margin:0; padding:0; max-height:min(62vh,720px); overflow:auto}
+  .mercerr:empty{padding:0}
+  ul.lineup{list-style:none; margin:0; padding:0; max-height:min(62vh,720px); overflow:auto;
+            overscroll-behavior:contain}
   .row{display:flex; align-items:center; gap:8px; padding:7px 12px 7px 14px; border-bottom:1px solid #f0ede6; opacity:.5}
   .row.on{opacity:1}
-  .row .n{width:24px; font-size:11.5px; color:var(--muted); text-align:right; flex:0 0 auto}
+  .row .n{width:30px; height:30px; flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+          font-size:11.5px; color:var(--muted); border-radius:8px; background:#f1eee7;
+          border:1px solid transparent}
+  .row .handle{cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none}
+  .row .handle:hover{border-color:var(--line); color:var(--ink); background:#eae6dd}
+  .row .handle:active{cursor:grabbing}
+  .row.ghost{opacity:.22}
+  .row.floating{position:fixed; z-index:80; margin:0; pointer-events:none; cursor:grabbing;
+                background:var(--card); border:1px solid var(--line); border-radius:11px;
+                box-shadow:0 10px 26px rgba(40,30,20,.24); opacity:.98}
   .row .who{flex:1 1 auto; min-width:0; display:flex; flex-direction:column; line-height:1.25}
   .row .nm{font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .row .cp{font-size:11px; color:var(--muted)}
@@ -183,11 +201,17 @@
   <aside class="panel">
     <h2>Line-up</h2>
     <div class="sub">Order is priority — the top of this list gets the slots nearest the pass.
-      <b id="slotinfo"></b>. <button class="btn link" id="reset">reset to BGB order</button></div>
+      <b id="slotinfo"></b>.<br />Drag the number to move a player, or nudge with ⤒ ↑ ↓.
+      <button class="btn link" id="reset">reset to BGB order</button></div>
     <div class="merc">
       <input id="mname" placeholder="Mercenary name" autocapitalize="none" />
       <input id="mcp" class="cp" placeholder="BGB CP" inputmode="numeric" />
       <button class="btn" id="addmerc">+ Add</button>
+    </div>
+    <div class="bulkrow"><button class="btn link" id="bulktoggle">＋ bulk add…</button></div>
+    <div class="merc bulkbox" id="bulkbox" hidden>
+      <textarea id="mbulk" rows="3" placeholder="Ronin, Kaida, Vex — separate names with commas"></textarea>
+      <button class="btn" id="addbulk">+ Add all</button>
     </div>
     <div class="mercerr" id="mercerr"></div>
     <ul class="lineup" id="lineup"></ul>

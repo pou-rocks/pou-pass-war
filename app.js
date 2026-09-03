@@ -53,13 +53,31 @@
     state.lineup = pool;
   }
 
-  function addMerc(name, bgb) {
-    name = (name || "").trim();
-    if (!name) return "Give the mercenary a name.";
-    if (state.lineup.some((m) => m.name.toLowerCase() === name.toLowerCase()))
-      return `"${name}" is already in the lineup.`;
-    state.lineup.unshift({ name, bgb: Number(bgb) || 0, cp: 0, lvl: null, merc: true });
-    return null;
+  /* Mercenaries carry no BGB CP -- their position in the line-up is their rank.
+     Accepts one name or a comma-separated list; newlines count as separators too, so a
+     pasted column works. Spacing around the commas is irrelevant. */
+  function addMercs(raw, bgb) {
+    const names = String(raw || "").split(/[,\n\r]+/).map((s) => s.trim()).filter(Boolean);
+    if (!names.length) return { added: 0, dup: [], err: "Give at least one mercenary name." };
+    const have = new Set(state.lineup.map((m) => m.name.toLowerCase()));
+    const fresh = [], dup = [];
+    for (const n of names) {
+      const k = n.toLowerCase();
+      if (have.has(k)) { dup.push(n); continue; }
+      have.add(k);
+      fresh.push({ name: n, bgb: Number(String(bgb || "").replace(/[^0-9.]/g, "")) || 0,
+                   cp: 0, lvl: null, merc: true });
+    }
+    state.lineup.unshift.apply(state.lineup, fresh);   // keeps the order they were typed in
+    return { added: fresh.length, dup: dup };
+  }
+
+  function reportMercs(r) {
+    if (r.err) return r.err;
+    const bits = [];
+    if (r.added) bits.push(`Added ${r.added}`);
+    if (r.dup.length) bits.push(`already in the line-up: ${r.dup.join(", ")}`);
+    return bits.join(" · ");
   }
 
   const move = (i, to) => {
@@ -85,7 +103,8 @@
       } catch (e) { state.source = "bundled snapshot (" + e.message + ")"; }
     }
     if (text === null) {
-      text = await fetch("members.csv", { cache: "no-store" }).then((r) => r.text());
+      text = window.__MEMBERS_CSV__ ||
+        await fetch("members.csv", { cache: "no-store" }).then((r) => r.text());
       if (!state.source) state.source = "bundled snapshot";
     }
     state.roster = PassWar.parseMembers(text);
@@ -110,38 +129,63 @@
   }
   const countMercs = () => state.lineup.filter((m) => m.merc).length;
 
+  const shelterCount = () => (state.opts.version === 3 ? 0 : 8);
+  const cutAt = () => Math.max(shelterCount(), state.opts.portalOwners);
+
+  function badgesFor(i) {
+    let h = "";
+    if (i < shelterCount()) h += `<b class="bg s">S${i + 1}</b>`;
+    if (i < state.opts.portalOwners) h += `<b class="bg p">P${i + 1}</b>`;
+    return h;
+  }
+
   function renderLineup() {
-    const o = state.opts, shelters = o.version === 3 ? 0 : 8;
-    const list = $("#lineup"); list.innerHTML = "";
-    $("#slotinfo").textContent = shelters
-      ? `${shelters} shelters + ${o.portalOwners} portals`
+    const o = state.opts, list = $("#lineup");
+    list.innerHTML = "";
+    $("#slotinfo").textContent = shelterCount()
+      ? `${shelterCount()} shelters + ${o.portalOwners} portals`
       : `${o.portalOwners} portals (v3 has no shelters)`;
 
-    state.lineup.forEach((m, i) => {
+    state.lineup.forEach((m) => {
       const row = document.createElement("li");
-      row.className = "row" + (i < Math.max(shelters, o.portalOwners) ? " on" : "");
-      const badges = [];
-      if (i < shelters) badges.push(`<b class="bg s">S${i + 1}</b>`);
-      if (i < o.portalOwners) badges.push(`<b class="bg p">P${i + 1}</b>`);
+      row.className = "row";
+      row.dataset.name = m.name;
       row.innerHTML =
-        `<span class="n">${i + 1}</span>` +
+        `<span class="n handle" title="drag to reorder"></span>` +
         `<span class="who"><span class="nm">${esc(m.name)}</span>` +
         `<span class="cp">${m.merc ? "mercenary" : ""}${m.bgb ? (m.merc ? " · " : "") + PassWar.shortCP(m.bgb) : (m.merc ? "" : "—")}</span></span>` +
-        `<span class="badges">${badges.join("")}</span>` +
+        `<span class="badges"></span>` +
         `<span class="acts">` +
-          `<button title="to top" data-a="top" data-i="${i}">⤒</button>` +
-          `<button title="up" data-a="up" data-i="${i}">↑</button>` +
-          `<button title="down" data-a="dn" data-i="${i}">↓</button>` +
-          (m.merc ? `<button title="remove" class="rm" data-a="rm" data-i="${i}">✕</button>` : "") +
+          `<button title="to top" data-a="top">⤒</button>` +
+          `<button title="up" data-a="up">↑</button>` +
+          `<button title="down" data-a="dn">↓</button>` +
+          (m.merc ? `<button title="remove" class="rm" data-a="rm">✕</button>` : "") +
         `</span>`;
       list.appendChild(row);
-      if (i + 1 === Math.max(shelters, o.portalOwners)) {
-        const div = document.createElement("li");
-        div.className = "cut";
-        div.textContent = "— assigned above · bench below —";
-        list.appendChild(div);
-      }
     });
+    const div = document.createElement("li");
+    div.className = "cut";
+    div.textContent = "— assigned above · bench below —";
+    list.appendChild(div);
+    restripe();
+  }
+
+  /* Rewrite the position-derived bits in place. Called after every drag step so the row
+     you are holding shows the slot it would actually land in. */
+  function restripe() {
+    const list = $("#lineup"), rows = [].slice.call(list.querySelectorAll(".row")), cut = cutAt();
+    rows.forEach((r, i) => {
+      r.querySelector(".n").textContent = i + 1;
+      r.querySelector(".badges").innerHTML = badgesFor(i);
+      r.classList.toggle("on", i < cut);
+      r.dataset.i = i;
+    });
+    const div = list.querySelector(".cut");
+    if (div) {
+      if (rows[cut]) list.insertBefore(div, rows[cut]);
+      else list.appendChild(div);
+      div.hidden = !rows.length || cut >= rows.length;
+    }
   }
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -185,16 +229,27 @@
     };
 
     $("#addmerc").onclick = () => {
-      const err = addMerc($("#mname").value, $("#mcp").value);
-      $("#mercerr").textContent = err || "";
-      if (!err) { $("#mname").value = ""; $("#mcp").value = ""; draw(); }
+      const r = addMercs($("#mname").value, $("#mcp").value);
+      $("#mercerr").textContent = reportMercs(r);
+      if (r.added) { $("#mname").value = ""; $("#mcp").value = ""; draw(); }
+    };
+    $("#bulktoggle").onclick = () => {
+      const b = $("#bulkbox");
+      b.hidden = !b.hidden;
+      $("#bulktoggle").textContent = b.hidden ? "＋ bulk add…" : "− hide bulk add";
+      if (!b.hidden) $("#mbulk").focus();
+    };
+    $("#addbulk").onclick = () => {
+      const r = addMercs($("#mbulk").value, 0);
+      $("#mercerr").textContent = reportMercs(r);
+      if (r.added) { $("#mbulk").value = ""; draw(); }
     };
     $("#mname").onkeydown = (e) => { if (e.key === "Enter") $("#addmerc").click(); };
     $("#mcp").onkeydown = (e) => { if (e.key === "Enter") $("#addmerc").click(); };
 
     $("#lineup").onclick = (e) => {
       const b = e.target.closest("button"); if (!b) return;
-      const i = +b.dataset.i;
+      const i = +b.closest(".row").dataset.i;
       if (b.dataset.a === "top") move(i, 0);
       else if (b.dataset.a === "up") move(i, i - 1);
       else if (b.dataset.a === "dn") move(i, i + 1);
@@ -202,6 +257,84 @@
       draw();
     };
     $("#logout").onclick = () => Auth.logout();
+  }
+
+  function commitOrder() {
+    const by = new Map(state.lineup.map((m) => [m.name, m]));
+    const next = [].slice.call($("#lineup").querySelectorAll(".row"))
+      .map((r) => by.get(r.dataset.name)).filter(Boolean);
+    if (next.length === state.lineup.length) state.lineup = next;
+    draw();
+  }
+
+  function placeAt(list, row, y) {
+    const rows = [].slice.call(list.querySelectorAll(".row")).filter((r) => r !== row);
+    let before = null;
+    for (const r of rows) {
+      const b = r.getBoundingClientRect();
+      if (y < b.top + b.height / 2) { before = r; break; }
+    }
+    if (before) list.insertBefore(row, before); else list.appendChild(row);
+    restripe();
+  }
+
+  function initDrag() {
+    const list = $("#lineup");
+    let drag = null;
+
+    list.addEventListener("pointerdown", (e) => {
+      const h = e.target.closest(".handle");
+      if (!h || e.button) return;
+      const row = h.closest(".row"), rect = row.getBoundingClientRect();
+      e.preventDefault();
+      const clone = row.cloneNode(true);
+      clone.className = "row floating";
+      clone.style.width = rect.width + "px";
+      clone.style.left = rect.left + "px";
+      clone.style.top = rect.top + "px";
+      document.body.appendChild(clone);
+      row.classList.add("ghost");
+      drag = { row, clone, grab: e.clientY - rect.top, y: e.clientY, id: e.pointerId, alive: true };
+      list.setPointerCapture(e.pointerId);      // capture on the list: the row itself gets moved
+      autoScroll(list, drag);
+    });
+
+    list.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      e.preventDefault();
+      drag.y = e.clientY;
+      drag.clone.style.top = (e.clientY - drag.grab) + "px";
+      placeAt(list, drag.row, e.clientY);
+    });
+
+    const end = (e) => {
+      if (!drag || (e.pointerId !== undefined && e.pointerId !== drag.id)) return;
+      drag.alive = false;
+      drag.clone.remove();
+      drag.row.classList.remove("ghost");
+      drag = null;
+      commitOrder();
+    };
+    list.addEventListener("pointerup", end);
+    list.addEventListener("pointercancel", end);
+  }
+
+  /* Keep scrolling while the finger simply rests near an edge -- a 97-row list needs it. */
+  function autoScroll(list, drag) {
+    const step = () => {
+      if (!drag.alive) return;
+      const b = list.getBoundingClientRect(), edge = 46;
+      let d = 0;
+      if (drag.y < b.top + edge) d = -Math.min(15, (b.top + edge - drag.y) / 2.2);
+      else if (drag.y > b.bottom - edge) d = Math.min(15, (drag.y - (b.bottom - edge)) / 2.2);
+      if (d) {
+        const before = list.scrollTop;
+        list.scrollTop += d;
+        if (list.scrollTop !== before) placeAt(list, drag.row, drag.y);
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   function syncControls() {
@@ -217,7 +350,7 @@
     $("#gate").hidden = true; $("#app").hidden = false;
     $("#whoami").textContent = who.name;
     await loadRoster(true);
-    syncControls(); bind(); draw();
+    syncControls(); bind(); initDrag(); draw();
   }
 
   window.addEventListener("DOMContentLoaded", () => {

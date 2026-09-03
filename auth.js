@@ -18,7 +18,8 @@
   }
 
   async function login(id, password) {
-    const users = await fetch("users.json", { cache: "no-store" }).then((r) => r.json());
+    const users = global.__USERS__ ||
+      await fetch("users.json", { cache: "no-store" }).then((r) => r.json());
     const u = users[String(id).trim().toLowerCase()];
     if (!u) return null;
     const hash = await derive(password, u.salt);
