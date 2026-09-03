@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#fbfaf7" />
+<title>PoU Pass War Map</title>
+<style>
+  :root{
+    --bg:#e9e6de; --card:#fbfaf7; --map-bg:#f5f3ee; --ink:#272524; --muted:#736d64;
+    --line:#e2dfd6; --accent:#c44a32; --accent-ink:#fff; --ok:#2f7d55; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0; overflow-x:hidden}
+  body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink);
+       background:var(--bg); -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent}
+  [hidden]{display:none !important}
+
+  /* ---- gate ---- */
+  .gate{position:fixed; inset:0; z-index:60; display:grid; place-items:center; background:var(--bg); padding:20px}
+  .gate .panel{width:min(380px,100%); background:var(--card); border:1px solid var(--line);
+               border-radius:var(--radius); padding:26px; box-shadow:0 10px 40px rgba(40,30,20,.12)}
+  .gate h1{margin:0 0 4px; font-size:19px}
+  .gate p{margin:0 0 20px; font-size:13px; color:var(--muted)}
+  .gate label{display:block; font-size:12.5px; color:var(--muted); margin:0 0 5px}
+  .gate input{width:100%; height:42px; padding:0 12px; margin-bottom:14px; font:15px system-ui;
+              border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink)}
+  .gate .err{min-height:18px; font-size:12.5px; color:var(--accent); margin:2px 0 10px}
+
+  /* ---- app bar ---- */
+  .appbar{position:sticky; top:0; z-index:20; background:rgba(251,250,247,.94);
+          backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border-bottom:1px solid var(--line)}
+  .appbar .inner{max-width:1480px; margin:0 auto; padding:10px 16px}
+  .brand{display:flex; align-items:center; gap:11px}
+  .brand .logo{font-size:23px; line-height:1}
+  .brand h1{font-size:17px; margin:0; font-weight:700; letter-spacing:.2px}
+  .brand .sub{font-size:12px; color:var(--muted); margin-top:1px}
+  .brand .spacer{flex:1 1 auto}
+  .who{font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:8px}
+
+  .toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:11px}
+  .field{display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted)}
+  select,input[type=number]{font:14px system-ui; padding:0 10px; height:40px; border:1px solid var(--line);
+         border-radius:10px; background:var(--card); color:var(--ink); cursor:pointer}
+  input[type=number]{width:74px; cursor:text}
+  input[type=range]{accent-color:var(--accent); width:132px}
+  .toggle{display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 13px; border:1px solid var(--line);
+          border-radius:10px; background:var(--card); font-size:13.5px; cursor:pointer; user-select:none; white-space:nowrap}
+  .toggle:has(input:checked){border-color:var(--accent); background:#fdeee9; color:var(--accent)}
+  .toggle input{accent-color:var(--accent); width:17px; height:17px; margin:0}
+  .spacer{flex:1 1 auto}
+  .btn{display:inline-flex; align-items:center; justify-content:center; gap:7px; font:600 13.5px system-ui;
+       height:40px; padding:0 15px; border-radius:10px; border:1px solid var(--line); background:var(--card);
+       color:var(--ink); cursor:pointer; white-space:nowrap}
+  .btn:hover{background:#f1eee7}
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.5; cursor:default}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.link{border:0; background:none; padding:0 4px; color:var(--muted); font-weight:500; height:auto}
+  .btn.link:hover{color:var(--accent); background:none}
+
+  /* ---- layout ---- */
+  main{max-width:1480px; margin:0 auto; padding:16px; display:grid; gap:16px;
+       grid-template-columns:minmax(0,1fr) 350px; align-items:start}
+  .stage{overflow:auto; border-radius:var(--radius); -webkit-overflow-scrolling:touch}
+  .stage.full{max-height:78vh; box-shadow:inset 0 0 0 1px var(--line)}
+  #wrap{margin:0 auto; background:var(--map-bg); border-radius:var(--radius); max-width:100%;
+        box-shadow:0 8px 30px rgba(40,30,20,.13)}
+  .stage.full #wrap{max-width:none}
+  canvas{display:block; width:100%; height:auto; border-radius:var(--radius)}
+  .status{margin:11px 4px 2px; font-size:12.5px; color:var(--muted); text-align:center}
+  .src{margin:0 4px; font-size:11.5px; color:var(--muted); text-align:center; opacity:.8}
+
+  /* ---- lineup panel ---- */
+  .panel{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden}
+  .panel h2{margin:0; padding:14px 16px 4px; font-size:14.5px}
+  .panel .sub{padding:0 16px 12px; font-size:12px; color:var(--muted)}
+  .merc{display:flex; gap:8px; padding:0 16px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap}
+  .merc input{flex:1 1 120px; min-width:0; height:38px; padding:0 11px; font:14px system-ui;
+              border:1px solid var(--line); border-radius:9px; background:#fff}
+  .merc input.cp{flex:0 0 96px}
+  .mercerr{padding:8px 16px 0; font-size:12px; color:var(--accent)}
+  ul.lineup{list-style:none; margin:0; padding:0; max-height:min(62vh,720px); overflow:auto}
+  .row{display:flex; align-items:center; gap:8px; padding:7px 12px 7px 14px; border-bottom:1px solid #f0ede6; opacity:.5}
+  .row.on{opacity:1}
+  .row .n{width:24px; font-size:11.5px; color:var(--muted); text-align:right; flex:0 0 auto}
+  .row .who{flex:1 1 auto; min-width:0; display:flex; flex-direction:column; line-height:1.25}
+  .row .nm{font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .row .cp{font-size:11px; color:var(--muted)}
+  .row .badges{display:flex; gap:3px; flex:0 0 auto}
+  .bg{font:600 10px/1 system-ui; padding:4px 5px; border-radius:5px; color:#fff}
+  .bg.s{background:var(--ok)} .bg.p{background:#3468ba}
+  .row .acts{display:flex; gap:2px; flex:0 0 auto}
+  .row .acts button{width:26px; height:28px; border:1px solid var(--line); background:var(--card);
+                    border-radius:7px; cursor:pointer; font-size:12px; color:var(--muted); padding:0}
+  .row .acts button:hover{background:#f1eee7; color:var(--ink)}
+  .row .acts .rm:hover{color:var(--accent); border-color:var(--accent)}
+  .cut{padding:6px 14px; font-size:11px; color:var(--muted); background:#f3f0e9;
+       border-bottom:1px solid var(--line); text-align:center; letter-spacing:.3px}
+
+  /* ---- phones ---- */
+  @media (max-width:980px){
+    main{grid-template-columns:minmax(0,1fr)}
+    ul.lineup{max-height:52vh}
+  }
+  @media (max-width:560px){
+    .appbar .inner{padding:8px 12px}
+    .brand h1{font-size:16px}
+    main{padding:12px}
+    .field{font-size:12px}
+  }
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate" hidden>
+  <div class="panel" style="border:1px solid var(--line)">
+    <h1 style="padding:0;margin:0 0 4px">PoU Pass War Map</h1>
+    <p style="padding:0">Alliance tool — sign in to continue.</p>
+    <label for="uid">ID</label>
+    <input id="uid" autocomplete="username" autocapitalize="none" spellcheck="false" />
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" />
+    <div class="err" id="gateerr"></div>
+    <button class="btn primary" id="signin" style="width:100%">Sign in</button>
+  </div>
+</div>
+
+<div id="app" hidden>
+<header class="appbar">
+  <div class="inner">
+    <div class="brand">
+      <span class="logo">🚪</span>
+      <div>
+        <h1>PoU Pass Occupation War</h1>
+        <div class="sub">Portal &amp; shelter placement around the pass</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="who"><span id="whoami"></span><button class="btn link" id="logout">sign out</button></span>
+    </div>
+
+    <div class="toolbar">
+      <label class="field">Version
+        <select id="version">
+          <option value="1">v1 · portal layer under shelters</option>
+          <option value="2">v2 · shelters on the border</option>
+          <option value="3">v3 · all portals</option>
+        </select>
+      </label>
+      <label class="field">Pass at
+        <select id="orient">
+          <option value="bottom">bottom</option><option value="top">top</option>
+          <option value="left">left</option><option value="right">right</option>
+        </select>
+      </label>
+      <label class="field">Prioritised
+        <input type="range" id="owners" min="0" max="60" step="1" />
+        <b id="ownersOut" style="min-width:2ch">24</b>
+      </label>
+      <label class="field">Layers <input type="number" id="layers" min="0" max="8" /></label>
+      <label class="field">Lean
+        <select id="bias"><option value="left">left</option><option value="right">right</option></select>
+      </label>
+      <label class="toggle"><input type="checkbox" id="zones" />Build-out zones</label>
+      <span class="spacer"></span>
+      <button class="btn" id="refresh">↻ Refresh</button>
+      <button class="btn" id="full">⤢ Actual size</button>
+      <button class="btn primary" id="png">⬇ Download PNG</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="stage" id="stage">
+      <div id="wrap"><canvas id="map" width="400" height="300"></canvas></div>
+    </div>
+    <p class="status" id="status"></p>
+    <p class="src" id="src"></p>
+  </section>
+
+  <aside class="panel">
+    <h2>Line-up</h2>
+    <div class="sub">Order is priority — the top of this list gets the slots nearest the pass.
+      <b id="slotinfo"></b>. <button class="btn link" id="reset">reset to BGB order</button></div>
+    <div class="merc">
+      <input id="mname" placeholder="Mercenary name" autocapitalize="none" />
+      <input id="mcp" class="cp" placeholder="BGB CP" inputmode="numeric" />
+      <button class="btn" id="addmerc">+ Add</button>
+    </div>
+    <div class="mercerr" id="mercerr"></div>
+    <ul class="lineup" id="lineup"></ul>
+  </aside>
+</main>
+</div>
+
+<script src="engine.js"></script>
+<script src="auth.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
