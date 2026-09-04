@@ -1,38 +1,71 @@
-/* Access gate. Credentials are PBKDF2-SHA256 (200k iterations, per-user salt) in users.json,
-   so no password is readable in the source. This keeps the tool to the people you hand
-   accounts to; it is NOT server-side security -- everything a static host serves is
-   fetchable, and the roster Sheet is published separately anyway. */
+/* Discord sign-in, reusing the alliance bot's API.
+
+   The API owns the whole flow: it redirects to Discord, verifies the caller is a
+   member of the alliance guild, and hands back a short-lived JWT in the URL
+   fragment (never the query string, so it stays out of server logs and Referer
+   headers). Officers get is_admin in the token, which is what lets them save the
+   shared plan; everyone else reads it.
+
+   Nothing here is a security check -- the API re-verifies the token on every
+   request. The claims are read only to decide what the UI should offer. */
 (function (global) {
   "use strict";
-  const ITER = 200000, SESSION = "pouwar.session";
+  const API = "https://dws-api.xronocore.qzz.io";
+  const SESSION = "pouwar.session";
 
-  const b64 = (buf) => btoa(String.fromCharCode.apply(null, new Uint8Array(buf)));
-  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-
-  async function derive(password, saltB64) {
-    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password),
-      "PBKDF2", false, ["deriveBits"]);
-    const bits = await crypto.subtle.deriveBits(
-      { name: "PBKDF2", salt: unb64(saltB64), iterations: ITER, hash: "SHA-256" }, key, 256);
-    return b64(bits);
+  function claims(token) {
+    try {
+      const p = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      return { id: String(p.sub), name: p.name || "?", admin: !!p.adm, exp: p.exp || 0 };
+    } catch (e) { return null; }
   }
 
-  async function login(id, password) {
-    const users = global.__USERS__ ||
-      await fetch("users.json", { cache: "no-store" }).then((r) => r.json());
-    const u = users[String(id).trim().toLowerCase()];
-    if (!u) return null;
-    const hash = await derive(password, u.salt);
-    if (hash !== u.hash) return null;
-    const who = { id: String(id).trim().toLowerCase(), name: u.name || id };
-    sessionStorage.setItem(SESSION, JSON.stringify(who));
-    return who;
+  function begin() { location.href = `${API}/auth/login?app=passwar`; }
+
+  /* A token or an error comes back in the fragment; consume it and clean the URL
+     so a reload or a shared link never carries the token. */
+  function consumeHash() {
+    const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    const token = h.get("token"), error = h.get("error");
+    if (token || error) history.replaceState(null, "", location.pathname + location.search);
+    if (token) {
+      const c = claims(token);
+      if (c) { sessionStorage.setItem(SESSION, JSON.stringify({ token, ...c })); return { who: c }; }
+      return { error: "bad_token" };
+    }
+    return error ? { error } : {};
   }
 
   function current() {
-    try { return JSON.parse(sessionStorage.getItem(SESSION) || "null"); } catch (e) { return null; }
+    try {
+      const s = JSON.parse(sessionStorage.getItem(SESSION) || "null");
+      if (!s || !s.token) return null;
+      if (s.exp && Date.now() / 1000 > s.exp) { sessionStorage.removeItem(SESSION); return null; }
+      return s;
+    } catch (e) { return null; }
   }
-  function logout() { sessionStorage.removeItem(SESSION); location.reload(); }
 
-  global.Auth = { login, current, logout, derive, b64 };
+  function logout() { sessionStorage.removeItem(SESSION); location.replace(location.pathname); }
+
+  async function api(path, opts) {
+    const s = current();
+    if (!s) throw new Error("not signed in");
+    const r = await fetch(API + path, Object.assign({ cache: "no-store" }, opts, {
+      headers: Object.assign({ Authorization: "Bearer " + s.token },
+                             (opts && opts.body) ? { "Content-Type": "application/json" } : {},
+                             (opts && opts.headers) || {})
+    }));
+    if (r.status === 401) { sessionStorage.removeItem(SESSION); throw new Error("session expired"); }
+    if (r.status === 403) throw new Error("officers only");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.status === 204 ? null : r.json();
+  }
+
+  const MESSAGES = {
+    not_in_guild: "That Discord account is not in the PoU alliance server.",
+    not_authorised: "That account is not an alliance officer.",
+    bad_token: "The sign-in reply could not be read. Try again."
+  };
+
+  global.Auth = { API, begin, consumeHash, current, logout, api, MESSAGES };
 })(window);

@@ -11,10 +11,14 @@
   const STORE = "pouwar.state.v1";
   const $ = (s) => document.querySelector(s);
 
+  const SLUG = "default";
   const state = {
     roster: [],       // sheet members, BGB desc
     lineup: [],       // ordered member objects -- the priority list
     source: "",
+    server: null,     // {updated_by_name, updated_at} of the plan on the API
+    dirty: false,     // local edits not yet pushed to the alliance plan
+    offline: "",      // why the API is unreachable, if it is
     opts: {
       version: 1, orient: "bottom", portalOwners: 24, portalLayers: 4,
       shelterBias: "left", showZones: true, tile: 30, mapTiles: 40, rivalDepth: 6
@@ -27,14 +31,49 @@
   };
 
   // ------------------------------- persistence ------------------------------
+  const snapshot = () => ({
+    opts: state.opts,
+    order: state.lineup.map((m) => m.name),
+    mercs: state.lineup.filter((m) => m.merc).map((m) => ({ name: m.name, bgb: m.bgb }))
+  });
+
   function save() {
+    try { localStorage.setItem(STORE, JSON.stringify(snapshot())); } catch (e) { /* private mode */ }
+  }
+
+  /* The alliance plan lives on the API. Officers push it explicitly rather than on
+     every keystroke: two officers editing at once should not silently overwrite
+     each other between drags. */
+  async function pushPlan() {
+    const btn = $("#saveplan");
+    btn.disabled = true; setSaveState("saving…");
     try {
-      localStorage.setItem(STORE, JSON.stringify({
-        opts: state.opts,
-        order: state.lineup.map((m) => m.name),
-        mercs: state.lineup.filter((m) => m.merc).map((m) => ({ name: m.name, bgb: m.bgb }))
-      }));
-    } catch (e) { /* private mode */ }
+      const r = await Auth.api(`/lineups/${SLUG}`, { method: "PUT", body: JSON.stringify(snapshot()) });
+      state.server = { updated_by_name: r.updated_by_name, updated_at: r.updated_at };
+      state.dirty = false;
+      setSaveState("");
+    } catch (e) {
+      setSaveState(e.message === "officers only"
+        ? "Only officers can save the alliance plan." : "Could not save: " + e.message);
+    }
+    btn.disabled = false;
+    paintSaveBar();
+  }
+
+  async function pullPlan() {
+    try {
+      const r = await Auth.api(`/lineups/${SLUG}`);
+      state.offline = "";
+      if (r && r.order && r.order.length) {
+        state.server = { updated_by_name: r.updated_by_name, updated_at: r.updated_at };
+        return r;
+      }
+      state.server = null;
+    } catch (e) {
+      state.offline = e.message;
+      state.server = null;
+    }
+    return null;
   }
   function load() {
     try { return JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) { return null; }
@@ -88,7 +127,8 @@
 
   // ------------------------------- roster load ------------------------------
   async function loadRoster(live) {
-    const saved = load();
+    const remote = await pullPlan();
+    const saved = remote || load();          // the alliance plan outranks this device's cache
     if (saved && saved.opts) Object.assign(state.opts, saved.opts);
     if (saved && saved.mercs) state.lineup = saved.mercs.map((m) => Object.assign({ merc: true, cp: 0, lvl: null }, m));
 
@@ -126,6 +166,29 @@
     $("#src").textContent = "roster: " + state.source;
     renderLineup();
     save();
+    paintSaveBar();
+  }
+
+  function setSaveState(msg) { $("#savemsg").textContent = msg || ""; }
+
+  function paintSaveBar() {
+    const who = Auth.current(), bar = $("#savebar");
+    if (!who) { bar.hidden = true; return; }
+    bar.hidden = false;
+    const btn = $("#saveplan");
+    btn.hidden = !who.admin;
+    btn.classList.toggle("primary", state.dirty);
+    btn.textContent = state.dirty ? "⬆ Save to alliance" : "Saved to alliance";
+    btn.disabled = !state.dirty;
+    let note;
+    if (state.offline) note = "Alliance plan unavailable (" + state.offline + ") — working on this device only.";
+    else if (state.server) {
+      const t = new Date(state.server.updated_at);
+      note = `Alliance plan by ${state.server.updated_by_name || "?"} · ${isNaN(t) ? "" : t.toLocaleString()}`;
+      if (state.dirty) note += " · you have unsaved changes";
+    } else note = "No alliance plan saved yet.";
+    if (!who.admin) note += " · only officers can save";
+    $("#savenote").textContent = note;
   }
   const countMercs = () => state.lineup.filter((m) => m.merc).length;
 
@@ -192,7 +255,8 @@
   // ------------------------------- wiring -----------------------------------
   function bind() {
     const o = state.opts;
-    const set = (k, v, redraw) => { o[k] = v; if (redraw !== false) draw(); };
+    const edit = () => { state.dirty = true; draw(); };
+    const set = (k, v) => { o[k] = v; edit(); };
 
     $("#version").onchange = (e) => set("version", parseInt(e.target.value, 10));
     $("#orient").onchange = (e) => set("orient", e.target.value);
@@ -212,7 +276,7 @@
       const mercs = state.lineup.filter((m) => m.merc);
       state.lineup = state.roster.slice();
       mercs.forEach((m) => state.lineup.unshift(m));
-      draw();
+      edit();
     };
     $("#full").onclick = () => {
       $("#stage").classList.toggle("full");
@@ -231,7 +295,7 @@
     $("#addmerc").onclick = () => {
       const r = addMercs($("#mname").value, $("#mcp").value);
       $("#mercerr").textContent = reportMercs(r);
-      if (r.added) { $("#mname").value = ""; $("#mcp").value = ""; draw(); }
+      if (r.added) { $("#mname").value = ""; $("#mcp").value = ""; edit(); }
     };
     $("#bulktoggle").onclick = () => {
       const b = $("#bulkbox");
@@ -242,7 +306,7 @@
     $("#addbulk").onclick = () => {
       const r = addMercs($("#mbulk").value, 0);
       $("#mercerr").textContent = reportMercs(r);
-      if (r.added) { $("#mbulk").value = ""; draw(); }
+      if (r.added) { $("#mbulk").value = ""; edit(); }
     };
     $("#mname").onkeydown = (e) => { if (e.key === "Enter") $("#addmerc").click(); };
     $("#mcp").onkeydown = (e) => { if (e.key === "Enter") $("#addmerc").click(); };
@@ -254,9 +318,16 @@
       else if (b.dataset.a === "up") move(i, i - 1);
       else if (b.dataset.a === "dn") move(i, i + 1);
       else if (b.dataset.a === "rm") state.lineup.splice(i, 1);
-      draw();
+      edit();
     };
     $("#logout").onclick = () => Auth.logout();
+    $("#saveplan").onclick = () => pushPlan();
+    $("#reload").onclick = async () => {
+      setSaveState("reloading…");
+      await loadRoster(true);
+      state.dirty = false;
+      syncControls(); draw(); setSaveState("");
+    };
   }
 
   function commitOrder() {
@@ -264,6 +335,7 @@
     const next = [].slice.call($("#lineup").querySelectorAll(".row"))
       .map((r) => by.get(r.dataset.name)).filter(Boolean);
     if (next.length === state.lineup.length) state.lineup = next;
+    state.dirty = true;
     draw();
   }
 
@@ -348,26 +420,18 @@
   // ------------------------------- boot -------------------------------------
   async function start(who) {
     $("#gate").hidden = true; $("#app").hidden = false;
-    $("#whoami").textContent = who.name;
+    $("#whoami").textContent = who.name + (who.admin ? " · officer" : "");
     await loadRoster(true);
+    state.dirty = false;                 // whatever we just loaded is the baseline
     syncControls(); bind(); initDrag(); draw();
   }
 
   window.addEventListener("DOMContentLoaded", () => {
-    const who = Auth.current();
+    const back = Auth.consumeHash();          // returning from Discord?
+    const who = (back.who && Auth.current()) || Auth.current();
     if (who) return start(who);
     $("#gate").hidden = false;
-    const submit = async () => {
-      const btn = $("#signin");
-      btn.disabled = true; $("#gateerr").textContent = "checking…";
-      const u = await Auth.login($("#uid").value, $("#pw").value).catch(() => null);
-      if (u) return start(u);
-      $("#gateerr").textContent = "Wrong ID or password.";
-      btn.disabled = false; $("#pw").select();
-    };
-    $("#signin").onclick = submit;
-    $("#pw").onkeydown = (e) => { if (e.key === "Enter") submit(); };
-    $("#uid").onkeydown = (e) => { if (e.key === "Enter") $("#pw").focus(); };
-    $("#uid").focus();
+    $("#gateerr").textContent = back.error ? (Auth.MESSAGES[back.error] || back.error) : "";
+    $("#signin").onclick = () => { $("#gateerr").textContent = "redirecting to Discord…"; Auth.begin(); };
   });
 })();
