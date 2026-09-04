@@ -6,123 +6,138 @@
 <meta name="theme-color" content="#fbfaf7" />
 <title>PoU Pass War Map</title>
 <style>
+  /* Design tokens lifted from pou-rocks.github.io so the two tools read as one site:
+     zinc base, amber accent, glass surfaces. The map canvas stays light on purpose —
+     it is an exported PNG people paste into Discord, and the hive generator does the same. */
   :root{
-    --bg:#e9e6de; --card:#fbfaf7; --map-bg:#f5f3ee; --ink:#272524; --muted:#736d64;
-    --line:#e2dfd6; --accent:#c44a32; --accent-ink:#fff; --ok:#2f7d55; --radius:14px;
+    --bg:#18181b; --card:#27272a; --card-hover:#3f3f46; --border:#52525b;
+    --text:#fafafa; --muted:#a1a1aa;
+    --accent:#fbbf24; --accent-light:#fcd34d; --accent-text:#18181b;
+    --map-bg:#f5f3ee; --radius:12px;
+    --glass:rgba(39,39,42,.7); --glass-border:1px solid rgba(251,191,36,.1);
+    --ok:#34d399; --portal:#60a5fa;
   }
   *{box-sizing:border-box}
   html,body{margin:0; overflow-x:hidden}
-  body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink);
-       background:var(--bg); -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent}
+  body{font:15px/1.5 Inter,system-ui,Avenir,Helvetica,Arial,sans-serif; color:var(--text);
+       background:var(--bg); min-width:320px; min-height:100vh;
+       -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent}
   [hidden]{display:none !important}
+  .text-gradient{background:linear-gradient(135deg,var(--accent) 0,var(--accent-light) 100%);
+                 -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent}
 
   /* ---- gate ---- */
   .gate{position:fixed; inset:0; z-index:60; display:grid; place-items:center; background:var(--bg); padding:20px}
-  .gate .panel{width:min(380px,100%); background:var(--card); border:1px solid var(--line);
-               border-radius:var(--radius); padding:26px; box-shadow:0 10px 40px rgba(40,30,20,.12)}
-  .gate h1{margin:0 0 4px; font-size:19px}
-  .gate p{margin:0 0 20px; font-size:13px; color:var(--muted)}
-  .gate label{display:block; font-size:12.5px; color:var(--muted); margin:0 0 5px}
-  .gate input{width:100%; height:42px; padding:0 12px; margin-bottom:14px; font:15px system-ui;
-              border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink)}
-  .gate .err{min-height:18px; font-size:12.5px; color:var(--accent); margin:2px 0 10px}
+  .gate .panel{width:min(400px,100%); background:var(--card); border:var(--glass-border);
+               border-radius:var(--radius); padding:28px; box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  .gate h1{margin:0 0 6px; font-size:21px; font-weight:700}
+  .gate p{margin:0 0 20px; font-size:13px; color:var(--muted); line-height:1.55}
+  .gate .err{min-height:18px; font-size:12.5px; color:#f87171; margin:2px 0 12px}
 
   /* ---- app bar ---- */
-  .appbar{position:sticky; top:0; z-index:20; background:rgba(251,250,247,.94);
-          backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border-bottom:1px solid var(--line)}
-  .appbar .inner{max-width:1480px; margin:0 auto; padding:10px 16px}
+  .appbar{position:sticky; top:0; z-index:50; background:var(--glass);
+          backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-bottom:1px solid var(--border)}
+  .appbar .inner{max-width:1480px; margin:0 auto; padding:12px 16px}
   .brand{display:flex; align-items:center; gap:11px}
   .brand .logo{font-size:23px; line-height:1}
-  .brand h1{font-size:17px; margin:0; font-weight:700; letter-spacing:.2px}
+  .brand h1{font-size:18px; margin:0; font-weight:700; letter-spacing:.2px}
   .brand .sub{font-size:12px; color:var(--muted); margin-top:1px}
   .brand .spacer{flex:1 1 auto}
   .who{font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:8px}
 
-  .toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:11px}
+  .toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:12px}
   .field{display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted)}
-  select,input[type=number]{font:14px system-ui; padding:0 10px; height:40px; border:1px solid var(--line);
-         border-radius:10px; background:var(--card); color:var(--ink); cursor:pointer}
-  input[type=number]{width:74px; cursor:text}
+  select,input[type=number],input[type=text],.gate input{font:14px inherit; padding:0 10px; height:40px;
+         border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text)}
+  select{cursor:pointer}
+  input[type=number]{width:74px}
   input[type=range]{accent-color:var(--accent); width:132px}
-  .toggle{display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 13px; border:1px solid var(--line);
-          border-radius:10px; background:var(--card); font-size:13.5px; cursor:pointer; user-select:none; white-space:nowrap}
-  .toggle:has(input:checked){border-color:var(--accent); background:#fdeee9; color:var(--accent)}
+  select:focus,input:focus,textarea:focus{outline:2px solid rgba(251,191,36,.45); outline-offset:1px}
+  .toggle{display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 13px; border:1px solid var(--border);
+          border-radius:8px; background:var(--card); font-size:13.5px; color:var(--muted); cursor:pointer;
+          user-select:none; white-space:nowrap; transition:color .15s,background .15s,border-color .15s}
+  .toggle:hover{color:var(--text)}
+  .toggle:has(input:checked){border-color:var(--accent); background:rgba(251,191,36,.15); color:var(--accent)}
   .toggle input{accent-color:var(--accent); width:17px; height:17px; margin:0}
   .spacer{flex:1 1 auto}
-  .btn{display:inline-flex; align-items:center; justify-content:center; gap:7px; font:600 13.5px system-ui;
-       height:40px; padding:0 15px; border-radius:10px; border:1px solid var(--line); background:var(--card);
-       color:var(--ink); cursor:pointer; white-space:nowrap}
-  .btn:hover{background:#f1eee7}
+  .btn{display:inline-flex; align-items:center; justify-content:center; gap:7px; font:500 13.5px inherit;
+       height:40px; padding:0 15px; border-radius:8px; border:1px solid var(--border); background:var(--card);
+       color:var(--text); cursor:pointer; white-space:nowrap; transition:background .15s,border-color .15s}
+  .btn:hover{background:var(--card-hover)}
   .btn:active{transform:translateY(1px)}
-  .btn:disabled{opacity:.5; cursor:default}
-  .btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
-  .btn.primary:hover{filter:brightness(1.06)}
-  .btn.link{border:0; background:none; padding:0 4px; color:var(--muted); font-weight:500; height:auto}
+  .btn:disabled{opacity:.45; cursor:default}
+  .btn:disabled:hover{background:var(--card)}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-text); font-weight:600}
+  .btn.primary:hover{filter:brightness(1.05); background:var(--accent)}
+  .btn.link{border:0; background:none; padding:0 4px; color:var(--muted); height:auto}
   .btn.link:hover{color:var(--accent); background:none}
 
   /* ---- layout ---- */
-  main{max-width:1480px; margin:0 auto; padding:16px; display:grid; gap:16px;
-       grid-template-columns:minmax(0,1fr) 350px; align-items:start}
-  .stage{overflow:auto; border-radius:var(--radius); -webkit-overflow-scrolling:touch}
-  .stage.full{max-height:78vh; box-shadow:inset 0 0 0 1px var(--line)}
-  #wrap{margin:0 auto; background:var(--map-bg); border-radius:var(--radius); max-width:100%;
-        box-shadow:0 8px 30px rgba(40,30,20,.13)}
+  main{max-width:1480px; margin:0 auto; padding:20px 16px; display:grid; gap:18px;
+       grid-template-columns:minmax(0,1fr) 360px; align-items:start}
+  .stage{overflow:auto; border-radius:var(--radius); background:var(--glass); border:var(--glass-border);
+         padding:8px; -webkit-overflow-scrolling:touch}
+  .stage.full{max-height:78vh}
+  #wrap{margin:0 auto; background:var(--map-bg); border-radius:8px; max-width:100%;
+        box-shadow:0 8px 30px rgba(0,0,0,.35)}
   .stage.full #wrap{max-width:none}
-  canvas{display:block; width:100%; height:auto; border-radius:var(--radius)}
-  .status{margin:11px 4px 2px; font-size:12.5px; color:var(--muted); text-align:center}
-  .src{margin:0 4px; font-size:11.5px; color:var(--muted); text-align:center; opacity:.8}
+  canvas{display:block; width:100%; height:auto; border-radius:8px}
+  .status{margin:12px 4px 2px; font-size:12.5px; color:var(--muted); text-align:center}
+  .src{margin:0 4px; font-size:11.5px; color:var(--muted); text-align:center; opacity:.75}
 
-  /* ---- lineup panel ---- */
-  .panel{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden}
-  .panel h2{margin:0; padding:14px 16px 4px; font-size:14.5px}
-  .savebar{padding:13px 16px; border-bottom:1px solid var(--line); background:#f6f3ec}
-  .savenote{font-size:11.5px; color:var(--muted); line-height:1.45}
-  .planpick{width:100%; height:38px; margin-top:9px; font:13.5px system-ui}
+  /* ---- line-up panel ---- */
+  .panel{background:var(--glass); border:var(--glass-border); border-radius:var(--radius); overflow:hidden;
+         backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px)}
+  .panel h2{margin:0; padding:15px 16px 4px; font-size:15px; font-weight:600}
+  .panel .sub{padding:0 16px 13px; font-size:12px; color:var(--muted); line-height:1.5}
+  .savebar{padding:13px 16px; border-bottom:1px solid var(--border); background:rgba(24,24,27,.45)}
+  .savenote{font-size:11.5px; color:var(--muted); line-height:1.5}
+  .planpick{width:100%; margin-top:10px}
   .saveactions{display:flex; gap:8px; margin-top:8px}
-  .saveactions .btn{flex:1 1 auto; height:36px; font-size:12.5px}
-  .savemsg{font-size:11.5px; color:var(--accent); margin-top:7px}
+  .saveactions .btn{flex:1 1 auto; height:36px; font-size:12.5px; padding:0 10px}
+  .savemsg{font-size:11.5px; color:var(--accent); margin-top:8px}
   .savemsg:empty{margin:0}
-  .panel .sub{padding:0 16px 12px; font-size:12px; color:var(--muted)}
-  .merc{display:flex; gap:8px; padding:0 16px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap}
-  .merc input{flex:1 1 120px; min-width:0; height:38px; padding:0 11px; font:14px system-ui;
-              border:1px solid var(--line); border-radius:9px; background:#fff}
+  .merc{display:flex; gap:8px; padding:0 16px 12px; flex-wrap:wrap}
+  .merc input{flex:1 1 120px; min-width:0; height:38px}
   .merc input.cp{flex:0 0 96px}
-  .merc{border-bottom:0}
-  .bulkrow{padding:0 16px 10px; margin-top:-6px}
+  .bulkrow{padding:0 16px 10px; margin-top:-4px}
   .bulkbox{padding-top:2px}
-  .bulkbox textarea{flex:1 1 100%; min-width:0; padding:9px 11px; font:14px system-ui; resize:vertical;
-                    border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink)}
+  .bulkbox textarea{flex:1 1 100%; min-width:0; padding:9px 11px; font:14px inherit; resize:vertical;
+                    border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--text)}
   .bulkbox .btn{width:100%}
-  .panel .merc:last-of-type{border-bottom:1px solid var(--line)}
-  .mercerr{padding:8px 16px 0; font-size:12px; color:var(--accent)}
+  .panel .merc:last-of-type{border-bottom:1px solid var(--border)}
+  .mercerr{padding:8px 16px 0; font-size:12px; color:#f87171}
   .mercerr:empty{padding:0}
+
   ul.lineup{list-style:none; margin:0; padding:0; max-height:min(62vh,720px); overflow:auto;
             overscroll-behavior:contain}
-  .row{display:flex; align-items:center; gap:8px; padding:7px 12px 7px 14px; border-bottom:1px solid #f0ede6; opacity:.5}
+  .row{display:flex; align-items:center; gap:8px; padding:7px 12px 7px 14px;
+       border-bottom:1px solid rgba(82,82,91,.35); opacity:.45}
   .row.on{opacity:1}
+  .row:hover{background:rgba(63,63,70,.4)}
   .row .n{width:30px; height:30px; flex:0 0 auto; display:flex; align-items:center; justify-content:center;
-          font-size:11.5px; color:var(--muted); border-radius:8px; background:#f1eee7;
+          font-size:11.5px; color:var(--muted); border-radius:8px; background:var(--card);
           border:1px solid transparent}
   .row .handle{cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none}
-  .row .handle:hover{border-color:var(--line); color:var(--ink); background:#eae6dd}
+  .row .handle:hover{border-color:var(--accent); color:var(--accent)}
   .row .handle:active{cursor:grabbing}
-  .row.ghost{opacity:.22}
+  .row.ghost{opacity:.2}
   .row.floating{position:fixed; z-index:80; margin:0; pointer-events:none; cursor:grabbing;
-                background:var(--card); border:1px solid var(--line); border-radius:11px;
-                box-shadow:0 10px 26px rgba(40,30,20,.24); opacity:.98}
+                background:var(--card-hover); border:1px solid var(--accent); border-radius:10px;
+                box-shadow:0 12px 30px rgba(0,0,0,.55); opacity:.98}
   .row .who{flex:1 1 auto; min-width:0; display:flex; flex-direction:column; line-height:1.25}
   .row .nm{font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .row .cp{font-size:11px; color:var(--muted)}
   .row .badges{display:flex; gap:3px; flex:0 0 auto}
-  .bg{font:600 10px/1 system-ui; padding:4px 5px; border-radius:5px; color:#fff}
-  .bg.s{background:var(--ok)} .bg.p{background:#3468ba}
+  .bg{font:600 10px/1 inherit; padding:4px 5px; border-radius:5px; color:#18181b}
+  .bg.s{background:var(--ok)} .bg.p{background:var(--portal)}
   .row .acts{display:flex; gap:2px; flex:0 0 auto}
-  .row .acts button{width:26px; height:28px; border:1px solid var(--line); background:var(--card);
+  .row .acts button{width:26px; height:28px; border:1px solid var(--border); background:var(--card);
                     border-radius:7px; cursor:pointer; font-size:12px; color:var(--muted); padding:0}
-  .row .acts button:hover{background:#f1eee7; color:var(--ink)}
-  .row .acts .rm:hover{color:var(--accent); border-color:var(--accent)}
-  .cut{padding:6px 14px; font-size:11px; color:var(--muted); background:#f3f0e9;
-       border-bottom:1px solid var(--line); text-align:center; letter-spacing:.3px}
+  .row .acts button:hover{background:var(--card-hover); color:var(--text)}
+  .row .acts .rm:hover{color:#f87171; border-color:#f87171}
+  .cut{padding:6px 14px; font-size:11px; color:var(--muted); background:rgba(24,24,27,.6);
+       border-bottom:1px solid var(--border); text-align:center; letter-spacing:.3px}
 
   /* ---- phones ---- */
   @media (max-width:980px){
@@ -130,9 +145,9 @@
     ul.lineup{max-height:52vh}
   }
   @media (max-width:560px){
-    .appbar .inner{padding:8px 12px}
+    .appbar .inner{padding:10px 12px}
     .brand h1{font-size:16px}
-    main{padding:12px}
+    main{padding:14px 12px}
     .field{font-size:12px}
   }
 </style>
@@ -140,13 +155,13 @@
 <body>
 
 <div class="gate" id="gate" hidden>
-  <div class="panel" style="border:1px solid var(--line)">
-    <h1 style="padding:0;margin:0 0 4px">PoU Pass War Map</h1>
+  <div class="panel">
+    <h1 style="padding:0;margin:0 0 6px" class="text-gradient">PoU Pass War Map</h1>
     <p style="padding:0">Alliance tool. Sign in with the Discord account you use
       in the PoU server — the plan you save is shared with the alliance.</p>
     <div class="err" id="gateerr"></div>
     <button class="btn primary" id="signin" style="width:100%">Sign in with Discord</button>
-    <p style="padding:0;margin:14px 0 0;font-size:11.5px;color:var(--muted)">
+    <p style="padding:0;margin:16px 0 0;font-size:11.5px;color:var(--muted)">
       Officers can save the alliance plan; everyone else can view and export it.</p>
   </div>
 </div>
@@ -157,7 +172,7 @@
     <div class="brand">
       <span class="logo">🚪</span>
       <div>
-        <h1>PoU Pass Occupation War</h1>
+        <h1 class="text-gradient">PoU Pass Occupation War</h1>
         <div class="sub">Portal &amp; shelter placement around the pass</div>
       </div>
       <span class="spacer"></span>
