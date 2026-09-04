@@ -11,13 +11,17 @@
   const STORE = "pouwar.state.v1";
   const $ = (s) => document.querySelector(s);
 
-  const SLUG = "default";
+  const OFFICIAL = "official";
+  const draftSlug = (id) => "draft:" + id;
   const state = {
     roster: [],       // sheet members, BGB desc
     lineup: [],       // ordered member objects -- the priority list
     source: "",
-    server: null,     // {updated_by_name, updated_at} of the plan on the API
-    dirty: false,     // local edits not yet pushed to the alliance plan
+    slug: OFFICIAL,   // which plan is on screen
+    plans: [],        // the published plan plus every officer's draft
+    title: "",
+    server: null,     // provenance of the plan on screen
+    dirty: false,     // local edits not yet saved to my draft
     offline: "",      // why the API is unreachable, if it is
     opts: {
       version: 1, orient: "bottom", portalOwners: 24, portalLayers: 4,
@@ -41,40 +45,59 @@
     try { localStorage.setItem(STORE, JSON.stringify(snapshot())); } catch (e) { /* private mode */ }
   }
 
-  /* The alliance plan lives on the API. Officers push it explicitly rather than on
-     every keystroke: two officers editing at once should not silently overwrite
-     each other between drags. */
-  async function pushPlan() {
-    const btn = $("#saveplan");
-    btn.disabled = true; setSaveState("saving…");
+  /* Plans live on the API: one published plan everyone loads, plus a draft per
+     officer that nobody else can overwrite. Publishing copies a draft into the
+     published plan and leaves the draft exactly where it was. */
+  async function refreshPlans() {
+    try { state.plans = await Auth.api("/lineups"); state.offline = ""; }
+    catch (e) { state.plans = []; state.offline = e.message; }
+  }
+
+  async function saveDraft() {
+    const who = Auth.current(), slug = draftSlug(who.id);
+    setSaveState("saving…");
     try {
-      const r = await Auth.api(`/lineups/${SLUG}`, { method: "PUT", body: JSON.stringify(snapshot()) });
-      state.server = { updated_by_name: r.updated_by_name, updated_at: r.updated_at };
-      state.dirty = false;
-      setSaveState("");
-    } catch (e) {
-      setSaveState(e.message === "officers only"
-        ? "Only officers can save the alliance plan." : "Could not save: " + e.message);
-    }
-    btn.disabled = false;
+      const r = await Auth.api("/lineups/" + slug, {
+        method: "PUT",
+        body: JSON.stringify(Object.assign(snapshot(), { title: state.title || null }))
+      });
+      state.slug = slug; state.server = r; state.dirty = false;
+      setSaveState("Draft saved.");
+      await refreshPlans();
+    } catch (e) { setSaveState("Could not save: " + e.message); }
     paintSaveBar();
   }
 
-  async function pullPlan() {
+  async function publishCurrent() {
+    if (state.slug === OFFICIAL) return;
+    if (!confirm("Publish this plan as the alliance's official line-up?\n\n" +
+                 "Everyone will load it. Every draft, including this one, stays untouched.")) return;
+    setSaveState("publishing…");
     try {
-      const r = await Auth.api(`/lineups/${SLUG}`);
-      state.offline = "";
-      if (r && r.order && r.order.length) {
-        state.server = { updated_by_name: r.updated_by_name, updated_at: r.updated_at };
-        return r;
-      }
-      state.server = null;
-    } catch (e) {
-      state.offline = e.message;
-      state.server = null;
-    }
-    return null;
+      state.server = await Auth.api("/lineups/" + state.slug + "/publish", { method: "POST" });
+      setSaveState("Published as the official plan.");
+      await refreshPlans();
+    } catch (e) { setSaveState("Could not publish: " + e.message); }
+    paintSaveBar();
   }
+
+  function applyPlan(p) {
+    if (p.opts) Object.assign(state.opts, p.opts);
+    state.lineup = (p.mercs || []).map((m) => Object.assign({ merc: true, cp: 0, lvl: null }, m));
+    syncLineup({ order: p.order || [] });
+  }
+
+  async function openPlan(slug) {
+    setSaveState("loading…");
+    try {
+      const r = await Auth.api("/lineups/" + slug);
+      state.slug = slug; state.server = r; state.title = r.title || "";
+      if (r.order && r.order.length) applyPlan(r);
+      state.dirty = false; setSaveState("");
+    } catch (e) { setSaveState("Could not open: " + e.message); }
+    syncControls(); draw();
+  }
+
   function load() {
     try { return JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) { return null; }
   }
@@ -127,8 +150,14 @@
 
   // ------------------------------- roster load ------------------------------
   async function loadRoster(live) {
-    const remote = await pullPlan();
-    const saved = remote || load();          // the alliance plan outranks this device's cache
+    await refreshPlans();
+    let remote = null;
+    try {
+      const r = await Auth.api("/lineups/" + state.slug);
+      if (r && r.order && r.order.length) { remote = r; state.server = r; state.title = r.title || ""; }
+      state.offline = "";
+    } catch (e) { state.offline = e.message; }
+    const saved = remote || load();          // the published plan outranks this device's cache
     if (saved && saved.opts) Object.assign(state.opts, saved.opts);
     if (saved && saved.mercs) state.lineup = saved.mercs.map((m) => Object.assign({ merc: true, cp: 0, lvl: null }, m));
 
@@ -175,23 +204,48 @@
     const who = Auth.current(), bar = $("#savebar");
     if (!who) { bar.hidden = true; return; }
     bar.hidden = false;
-    const btn = $("#saveplan");
-    btn.hidden = !who.admin;
-    btn.classList.toggle("primary", state.dirty);
-    btn.textContent = state.dirty ? "⬆ Save to alliance" : "Saved to alliance";
-    btn.disabled = !state.dirty;
+    const mine = draftSlug(who.id), onOfficial = state.slug === OFFICIAL;
+    const readOnly = !onOfficial && state.slug !== mine;      // another officer's draft
+
+    const label = (p) => p.slug === OFFICIAL
+      ? "★ Official plan" + (p.updated_by_name ? " — by " + p.updated_by_name : "")
+      : (p.slug === mine ? "My draft" : "Draft — " + (p.owner_name || "?")) +
+        (p.title ? " · " + p.title : "");
+    const known = state.plans.slice();
+    if (!known.some((p) => p.slug === OFFICIAL)) known.unshift({ slug: OFFICIAL });
+    if (who.admin && !known.some((p) => p.slug === mine)) known.push({ slug: mine });
+    $("#planpick").innerHTML = known.map((p) =>
+      '<option value="' + esc(p.slug) + '"' + (p.slug === state.slug ? " selected" : "") +
+      ">" + esc(label(p)) + "</option>").join("");
+
+    const draftBtn = $("#savedraft"), pubBtn = $("#publish");
+    draftBtn.hidden = !who.admin;
+    draftBtn.disabled = !state.dirty;
+    draftBtn.textContent = state.dirty ? "⬆ Save my draft" : "Draft saved";
+    draftBtn.classList.toggle("primary", state.dirty);
+    pubBtn.hidden = !who.admin || onOfficial;
+    pubBtn.disabled = state.dirty;
+    pubBtn.title = state.dirty ? "Save the draft before publishing it" : "";
+
     let note;
-    if (state.offline) note = "Alliance plan unavailable (" + state.offline + ") — working on this device only.";
-    else if (state.server) {
-      const t = new Date(state.server.updated_at);
-      note = `Alliance plan by ${state.server.updated_by_name || "?"} · ${isNaN(t) ? "" : t.toLocaleString()}`;
-      if (state.dirty) note += " · you have unsaved changes";
-    } else note = "No alliance plan saved yet.";
-    if (!who.admin) note += " · only officers can save";
+    if (state.offline) note = "Alliance API unavailable (" + state.offline + ") — this device only.";
+    else if (onOfficial) {
+      note = state.server && state.server.updated_by_name
+        ? "The official plan, published by " + state.server.updated_by_name + "."
+        : "No official plan published yet.";
+      if (who.admin) note += " Your edits here save to your own draft.";
+    } else if (readOnly) {
+      const owner = (state.server && state.server.owner_name) || "another officer";
+      note = "Viewing " + owner + "'s draft — you cannot overwrite it.";
+    } else {
+      note = "Your own draft. No other officer can overwrite it.";
+      if (state.dirty) note += " Unsaved changes.";
+    }
+    if (!who.admin) note += " Officers keep the drafts.";
     $("#savenote").textContent = note;
   }
-  const countMercs = () => state.lineup.filter((m) => m.merc).length;
 
+  const countMercs = () => state.lineup.filter((m) => m.merc).length;
   const shelterCount = () => (state.opts.version === 3 ? 0 : 8);
   const cutAt = () => Math.max(shelterCount(), state.opts.portalOwners);
 
@@ -321,12 +375,16 @@
       edit();
     };
     $("#logout").onclick = () => Auth.logout();
-    $("#saveplan").onclick = () => pushPlan();
+    $("#savedraft").onclick = () => saveDraft();
+    $("#publish").onclick = () => publishCurrent();
+    $("#planpick").onchange = (e) => {
+      if (state.dirty && !confirm("You have unsaved changes. Open another plan and lose them?")) {
+        e.target.value = state.slug; return;
+      }
+      openPlan(e.target.value);
+    };
     $("#reload").onclick = async () => {
-      setSaveState("reloading…");
-      await loadRoster(true);
-      state.dirty = false;
-      syncControls(); draw(); setSaveState("");
+      setSaveState("reloading…"); await refreshPlans(); await openPlan(state.slug);
     };
   }
 

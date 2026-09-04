@@ -77,7 +77,8 @@
   .panel h2{margin:0; padding:14px 16px 4px; font-size:14.5px}
   .savebar{padding:13px 16px; border-bottom:1px solid var(--line); background:#f6f3ec}
   .savenote{font-size:11.5px; color:var(--muted); line-height:1.45}
-  .saveactions{display:flex; gap:8px; margin-top:9px}
+  .planpick{width:100%; height:38px; margin-top:9px; font:13.5px system-ui}
+  .saveactions{display:flex; gap:8px; margin-top:8px}
   .saveactions .btn{flex:1 1 auto; height:36px; font-size:12.5px}
   .savemsg{font-size:11.5px; color:var(--accent); margin-top:7px}
   .savemsg:empty{margin:0}
@@ -206,9 +207,11 @@
   <aside class="panel">
     <div class="savebar" id="savebar" hidden>
       <div class="savenote" id="savenote"></div>
+      <select id="planpick" class="planpick" title="Which plan to view"></select>
       <div class="saveactions">
-        <button class="btn" id="reload" title="Discard local changes and reload the alliance plan">↻ Reload plan</button>
-        <button class="btn" id="saveplan">Saved to alliance</button>
+        <button class="btn" id="reload" title="Discard local changes and reload this plan">↻ Reload</button>
+        <button class="btn" id="savedraft">Draft saved</button>
+        <button class="btn" id="publish" title="Publish this plan as the official one">★ Publish</button>
       </div>
       <div class="savemsg" id="savemsg"></div>
     </div>
